@@ -1,5 +1,13 @@
 use macroquad::prelude::*;
 
+const COLOR_BG: Color = Color::new(0.11, 0.11, 0.16, 1.0);
+const COLOR_PANEL: Color = Color::new(0.18, 0.18, 0.24, 0.95);
+const COLOR_BTN: Color = Color::new(0.25, 0.25, 0.32, 1.0);
+const COLOR_BTN_HOVER: Color = Color::new(0.35, 0.35, 0.45, 1.0);
+const COLOR_BTN_ACTIVE: Color = Color::new(0.53, 0.70, 0.98, 1.0);
+const COLOR_TEXT: Color = WHITE;
+const COLOR_ACCENT: Color = Color::new(0.98, 0.70, 0.53, 1.0);
+
 #[derive(Clone, Copy, PartialEq)]
 enum BoundaryType {
     Bounded,
@@ -103,8 +111,6 @@ impl Map {
         self.grid.iter().flatten().filter(|&&c| c == 1).count()
     }
 
-    // === Patterns ===
-
     fn place_glider(&mut self, x: usize, y: usize) {
         let pattern = [(1,0),(2,1),(0,2),(1,2),(2,2)];
         for (dx, dy) in pattern { self.set_tile(x+dx, y+dy, 1); }
@@ -113,14 +119,10 @@ impl Map {
     fn place_pulsar(&mut self, x: usize, y: usize) {
         let pattern = [
             (2,0),(3,0),(4,0),(8,0),(9,0),(10,0),
-            (0,2),(5,2),(7,2),(12,2),
-            (0,3),(5,3),(7,3),(12,3),
-            (0,4),(5,4),(7,4),(12,4),
-            (2,5),(3,5),(4,5),(8,5),(9,5),(10,5),
-            (2,7),(3,7),(4,7),(8,7),(9,7),(10,7),
-            (0,8),(5,8),(7,8),(12,8),
-            (0,9),(5,9),(7,9),(12,9),
-            (0,10),(5,10),(7,10),(12,10),
+            (0,2),(5,2),(7,2),(12,2), (0,3),(5,3),(7,3),(12,3),
+            (0,4),(5,4),(7,4),(12,4), (2,5),(3,5),(4,5),(8,5),(9,5),(10,5),
+            (2,7),(3,7),(4,7),(8,7),(9,7),(10,7), (0,8),(5,8),(7,8),(12,8),
+            (0,9),(5,9),(7,9),(12,9), (0,10),(5,10),(7,10),(12,10),
             (2,12),(3,12),(4,12),(8,12),(9,12),(10,12),
         ];
         for (dx, dy) in pattern { self.set_tile(x+dx, y+dy, 1); }
@@ -139,23 +141,44 @@ impl Map {
     }
 }
 
-// === Camera ===
-
 struct Camera {
-    x: f32,
-    y: f32,
-    zoom: f32,
+    x: f32, y: f32, zoom: f32,
 }
 
 impl Camera {
     fn new() -> Self { Camera { x: 0.0, y: 0.0, zoom: 1.0 } }
-
     fn screen_to_world(&self, sx: f32, sy: f32) -> (f32, f32) {
         ((sx - self.x) / self.zoom, (sy - self.y) / self.zoom)
     }
 }
 
-// === Main loop ===
+fn ui_button(x: f32, y: f32, w: f32, h: f32, text: &str, is_active: bool) -> bool {
+    let (mx, my) = mouse_position();
+    let is_hovered = mx >= x && mx <= x + w && my >= y && my <= y + h;
+    
+    let bg = if is_active {
+        COLOR_BTN_ACTIVE
+    } else if is_hovered {
+        COLOR_BTN_HOVER
+    } else {
+        COLOR_BTN
+    };
+
+    draw_rectangle(x, y, w, h, bg);
+    draw_rectangle_lines(x, y, w, h, 1.0, Color::new(0.0, 0.0, 0.0, 0.3));
+
+    let text_dim = measure_text(text, None, 18, 1.0);
+    let tx = x + (w - text_dim.width) / 2.0;
+    let ty = y + h / 2.0 + text_dim.height / 3.0;
+    
+    draw_text(text, tx, ty, 18.0, COLOR_TEXT);
+
+    is_hovered && is_mouse_button_pressed(MouseButton::Left)
+}
+
+fn ui_speed_button(x: f32, y: f32, w: f32, h: f32, text: &str) -> bool {
+    ui_button(x, y, w, h, text, false)
+}
 
 #[macroquad::main("Game of Life")]
 async fn main() {
@@ -165,88 +188,50 @@ async fn main() {
     map.place_gosper_gun(2, 2);
 
     let mut camera = Camera::new();
-    let mut cell_size: f32 = 8.0;
+    let cell_size: f32 = 8.0;
     let mut paused = true;
-    let mut speed: f32 = 10.0; // generations per second
+    let mut speed: f32 = 10.0;
     let mut accumulator: f32 = 0.0;
-    let mut show_help = true;
+    let panel_w = 240.0;
 
     loop {
         let dt = get_frame_time();
+        let (mx, my) = mouse_position();
+        
+        let window_w = screen_width();
+        let window_h = screen_height();
+        let panel_h = window_h;
+        let panel_x = window_w - panel_w;
+        
+        let is_mouse_over_ui = mx >= panel_x;
 
-        // === Input handling ===
+        if !is_mouse_over_ui {
+            if is_mouse_button_pressed(MouseButton::Left) {
+                let (wx, wy) = camera.screen_to_world(mx, my);
+                let cx = (wx / cell_size) as i32;
+                let cy = (wy / cell_size) as i32;
+                if cx >= 0 && cy >= 0 {
+                    map.toggle_tile(cx as usize, cy as usize);
+                }
+            }
 
-        if is_mouse_button_pressed(MouseButton::Left) {
-            let (mx, my) = mouse_position();
-            let (wx, wy) = camera.screen_to_world(mx, my);
-            let cx = (wx / cell_size) as i32;
-            let cy = (wy / cell_size) as i32;
-            if cx >= 0 && cy >= 0 {
-                map.toggle_tile(cx as usize, cy as usize);
+            if is_mouse_button_down(MouseButton::Middle) || is_mouse_button_down(MouseButton::Right) {
+                let delta = mouse_delta_position();
+                camera.x += delta.x;
+                camera.y += delta.y;
+            }
+
+            let (_, wheel_y) = mouse_wheel();
+            if wheel_y != 0.0 {
+                let factor = if wheel_y > 0.0 { 1.1 } else { 1.0 / 1.1 };
+                let wx = (mx - camera.x) / camera.zoom;
+                let wy = (my - camera.y) / camera.zoom;
+                camera.zoom *= factor;
+                camera.x = mx - wx * camera.zoom;
+                camera.y = my - wy * camera.zoom;
             }
         }
 
-        if is_key_pressed(KeyCode::Space) {
-            paused = !paused;
-        }
-
-        if is_key_pressed(KeyCode::N) {
-            map.update();
-        }
-
-        if is_key_pressed(KeyCode::R) {
-            map.clear();
-        }
-
-        if is_key_pressed(KeyCode::F) {
-            map.fill_random();
-        }
-
-        if is_key_pressed(KeyCode::B) {
-            map.boundary = match map.boundary {
-                BoundaryType::Bounded => BoundaryType::Toroidal,
-                BoundaryType::Toroidal => BoundaryType::Bounded,
-            };
-        }
-
-        if is_key_pressed(KeyCode::Key1) {
-            map.clear();
-            map.place_glider(5, 5);
-        }
-        if is_key_pressed(KeyCode::Key2) {
-            map.clear();
-            map.place_pulsar(10, 10);
-        }
-        if is_key_pressed(KeyCode::Key3) {
-            map.clear();
-            map.place_gosper_gun(2, 2);
-        }
-
-        if is_key_pressed(KeyCode::H) {
-            show_help = !show_help;
-        }
-
-        if is_key_down(KeyCode::Up) { speed = (speed * 1.05).min(100.0); }
-        if is_key_down(KeyCode::Down) { speed = (speed / 1.05).max(0.5); }
-
-        let (_, wheel_y) = mouse_wheel();
-        if wheel_y != 0.0 {
-            let factor = if wheel_y > 0.0 { 1.1 } else { 1.0 / 1.1 };
-            let (mx, my) = mouse_position();
-            let wx = (mx - camera.x) / camera.zoom;
-            let wy = (my - camera.y) / camera.zoom;
-            camera.zoom *= factor;
-            camera.x = mx - wx * camera.zoom;
-            camera.y = my - wy * camera.zoom;
-        }
-
-        if is_mouse_button_down(MouseButton::Middle) || is_mouse_button_down(MouseButton::Right) {
-            let delta = mouse_delta_position();
-            camera.x += delta.x;
-            camera.y += delta.y;
-        }
-
-        // === Simulation ===
         if !paused {
             accumulator += dt * speed;
             while accumulator >= 1.0 {
@@ -255,8 +240,7 @@ async fn main() {
             }
         }
 
-        // === Rendering ===
-        clear_background(Color::new(0.08, 0.08, 0.12, 1.0));
+        clear_background(COLOR_BG);
 
         for y in 0..map.grid.len() {
             for x in 0..map.grid[0].len() {
@@ -264,48 +248,105 @@ async fn main() {
                 let sy = camera.y + y as f32 * cell_size * camera.zoom;
                 let size = cell_size * camera.zoom - 1.0;
 
-                if sx + size < 0.0 || sy + size < 0.0 || sx > screen_width() || sy > screen_height() {
+                if sx + size < 0.0 || sy + size < 0.0 || sx > window_w || sy > window_h {
                     continue;
                 }
 
                 let color = if map.grid[y][x] == 1 {
-                    Color::new(0.4, 1.0, 0.6, 1.0)
+                    Color::new(0.6, 0.95, 0.75, 1.0)
                 } else {
                     Color::new(0.15, 0.15, 0.2, 1.0)
                 };
-
                 draw_rectangle(sx, sy, size, size, color);
             }
         }
 
-        // === UI ===
-        let bg_color = Color::new(0.0, 0.0, 0.0, 0.7);
-        draw_rectangle(10.0, 10.0, 300.0, 130.0, bg_color);
+        draw_rectangle(panel_x, 0.0, panel_w, panel_h, COLOR_PANEL);
+        draw_line(panel_x, 0.0, panel_x, panel_h, 2.0, Color::new(0.0, 0.0, 0.0, 0.5));
 
-        let boundary_str = match map.boundary {
+        let mut ui_y = 20.0;
+        let margin = 15.0;
+        let btn_w = panel_w - margin * 2.0;
+        let btn_h = 36.0;
+
+        draw_text("GAME OF LIFE", panel_x + margin, ui_y + 20.0, 22.0, COLOR_ACCENT);
+        ui_y += 50.0;
+
+        draw_text(&format!("Gen: {}", map.generation), panel_x + margin, ui_y + 15.0, 16.0, COLOR_TEXT);
+        draw_text(&format!("Alive: {}", map.alive_count()), panel_x + margin + 120.0, ui_y + 15.0, 16.0, COLOR_TEXT);
+        ui_y += 30.0;
+
+        draw_text("PLAYBACK", panel_x + margin, ui_y + 15.0, 14.0, Color::new(0.6, 0.6, 0.7, 1.0));
+        ui_y += 25.0;
+
+        if ui_button(panel_x + margin, ui_y, btn_w, btn_h, if paused { "▶  RESUME" } else { "⏸  PAUSE" }, paused) {
+            paused = !paused;
+        }
+        ui_y += btn_h + 10.0;
+
+        draw_text(&format!("Speed: {:.1}x", speed), panel_x + margin + 60.0, ui_y + btn_h / 2.0 + 6.0, 18.0, COLOR_TEXT);
+        if ui_speed_button(panel_x + margin, ui_y, 50.0, btn_h, " - ") {
+            speed = (speed / 1.2).max(1.0);
+        }
+        if ui_speed_button(panel_x + margin + btn_w - 50.0, ui_y, 50.0, btn_h, " + ") {
+            speed = (speed * 1.2).min(60.0);
+        }
+        ui_y += btn_h + 10.0;
+
+        if ui_button(panel_x + margin, ui_y, btn_w, btn_h, "⏭  STEP (N)", false) {
+            map.update();
+        }
+        ui_y += btn_h + 25.0;
+
+        draw_text("BOARD ACTIONS", panel_x + margin, ui_y + 15.0, 14.0, Color::new(0.6, 0.6, 0.7, 1.0));
+        ui_y += 25.0;
+
+        let boundary_text = match map.boundary {
             BoundaryType::Bounded => "Bounded (Edges)",
             BoundaryType::Toroidal => "Toroidal (Wrap)",
         };
-
-        draw_text(&format!("Generation: {}", map.generation), 20.0, 35.0, 22.0, WHITE);
-        draw_text(&format!("Alive: {}", map.alive_count()), 20.0, 60.0, 22.0, WHITE);
-        draw_text(&format!("Boundary: {}", boundary_str), 20.0, 85.0, 22.0, YELLOW);
-        draw_text(&format!("Speed: {:.1} gen/s", speed), 20.0, 110.0, 22.0, WHITE);
-        draw_text(if paused { "⏸ PAUSED" } else { "▶ RUNNING" }, 20.0, 135.0, 22.0, 
-                  if paused { RED } else { GREEN });
-
-        if show_help {
-            let help_y = screen_height() - 180.0;
-            draw_rectangle(10.0, help_y, 400.0, 170.0, bg_color);
-            draw_text("Controls:", 20.0, help_y + 25.0, 22.0, YELLOW);
-            draw_text("LMB: Toggle cell", 20.0, help_y + 50.0, 18.0, WHITE);
-            draw_text("RMB/MMB: Pan camera", 20.0, help_y + 70.0, 18.0, WHITE);
-            draw_text("Scroll: Zoom", 20.0, help_y + 90.0, 18.0, WHITE);
-            draw_text("Space: Pause, N: Step, R: Clear", 20.0, help_y + 110.0, 18.0, WHITE);
-            draw_text("F: Random, B: Toggle boundary", 20.0, help_y + 130.0, 18.0, WHITE);
-            draw_text("1/2/3: Glider/Pulsar/Gosper Gun", 20.0, help_y + 150.0, 18.0, WHITE);
-            draw_text("Up/Down: Speed, H: Toggle help", 20.0, help_y + 170.0, 18.0, WHITE);
+        if ui_button(panel_x + margin, ui_y, btn_w, btn_h, boundary_text, false) {
+            map.boundary = match map.boundary {
+                BoundaryType::Bounded => BoundaryType::Toroidal,
+                BoundaryType::Toroidal => BoundaryType::Bounded,
+            };
         }
+        ui_y += btn_h + 10.0;
+
+        if ui_button(panel_x + margin, ui_y, btn_w / 2.0 - 5.0, btn_h, "🎲 Random", false) {
+            map.fill_random();
+        }
+        if ui_button(panel_x + margin + btn_w / 2.0 + 5.0, ui_y, btn_w / 2.0 - 5.0, btn_h, "🗑 Clear", false) {
+            map.clear();
+        }
+        ui_y += btn_h + 25.0;
+
+        draw_text("PATTERNS", panel_x + margin, ui_y + 15.0, 14.0, Color::new(0.6, 0.6, 0.7, 1.0));
+        ui_y += 25.0;
+
+        if ui_button(panel_x + margin, ui_y, btn_w, btn_h, "Glider", false) {
+            map.clear();
+            map.place_glider(5, 5);
+        }
+        ui_y += btn_h + 10.0;
+
+        if ui_button(panel_x + margin, ui_y, btn_w, btn_h, "Pulsar", false) {
+            map.clear();
+            map.place_pulsar(10, 10);
+        }
+        ui_y += btn_h + 10.0;
+
+        if ui_button(panel_x + margin, ui_y, btn_w, btn_h, "Gosper Glider Gun", false) {
+            map.clear();
+            map.place_gosper_gun(2, 2);
+        }
+        ui_y += btn_h + 25.0;
+
+        draw_text("LMB: Draw cells", panel_x + margin, ui_y + 15.0, 14.0, Color::new(0.5, 0.5, 0.6, 1.0));
+        ui_y += 20.0;
+        draw_text("RMB/MMB: Pan", panel_x + margin, ui_y + 15.0, 14.0, Color::new(0.5, 0.5, 0.6, 1.0));
+        ui_y += 20.0;
+        draw_text("Scroll: Zoom", panel_x + margin, ui_y + 15.0, 14.0, Color::new(0.5, 0.5, 0.6, 1.0));
 
         next_frame().await
     }
